@@ -75,12 +75,60 @@ document.addEventListener('DOMContentLoaded', function() {
     let audioChunks = [];
     let isRecording = false;
 
+    // --- Token 输入框逻辑 ---
+    const tokenInputContainer = document.getElementById('token-input-container');
+    const tokenInput = document.getElementById('token-input');
+    const saveTokenBtn = document.getElementById('save-token-btn');
+    let userToken = localStorage.getItem('sf_token') || '';
+    if (userToken) tokenInput.value = userToken;
+
+    saveTokenBtn.addEventListener('click', function() {
+        userToken = tokenInput.value.trim();
+        if (userToken) {
+            localStorage.setItem('sf_token', userToken);
+            tokenInputContainer.style.display = 'none';
+        }
+    });
+
+    // --- 长按麦克风按钮才触发录音/弹token输入框 ---
+    let micPressTimer = null;
+    const LONG_PRESS_DURATION = 300; // ms
+    let longPressTriggered = false;
+
     function addMicButtonEvents() {
-        micButton.addEventListener('mousedown', startRecording);
-        micButton.addEventListener('touchstart', startRecording);
-        micButton.addEventListener('mouseup', stopRecording);
-        micButton.addEventListener('mouseleave', stopRecording);
-        micButton.addEventListener('touchend', stopRecording);
+        micButton.addEventListener('mousedown', (e) => {
+            longPressTriggered = false;
+            micPressTimer = setTimeout(() => {
+                longPressTriggered = true;
+                if (!userToken) {
+                    tokenInputContainer.style.display = 'block';
+                    tokenInput.focus();
+                } else {
+                    startRecording(e);
+                }
+            }, LONG_PRESS_DURATION);
+        });
+        micButton.addEventListener('touchstart', (e) => {
+            longPressTriggered = false;
+            micPressTimer = setTimeout(() => {
+                longPressTriggered = true;
+                if (!userToken) {
+                    tokenInputContainer.style.display = 'block';
+                    tokenInput.focus();
+                } else {
+                    startRecording(e);
+                }
+            }, LONG_PRESS_DURATION);
+        });
+        function cancelPress(e) {
+            clearTimeout(micPressTimer);
+            if (longPressTriggered) {
+                stopRecording(e);
+            }
+        }
+        micButton.addEventListener('mouseup', cancelPress);
+        micButton.addEventListener('mouseleave', cancelPress);
+        micButton.addEventListener('touchend', cancelPress);
     }
 
     addMicButtonEvents();
@@ -128,7 +176,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function sendToSiliconFlow(audioBlob) {
         const transcriptContainer = document.getElementById('transcript');
-        // transcriptContainer.textContent = '识别中...';
+        transcriptContainer.textContent = '识别中...';
         document.querySelector('.transcript-container').classList.add('visible');
 
         const form = new FormData();
@@ -137,7 +185,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const options = {
             method: 'POST',
-            headers: { Authorization: 'Bearer <token>' }, // 替换为你的token
+            headers: { Authorization: 'Bearer ' + (userToken || '') },
             body: form
         };
 
