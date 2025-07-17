@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
 
     // --- 加载屏幕处理 ---
     const loadingScreen = document.getElementById('loading-screen');
@@ -9,7 +9,7 @@ document.addEventListener('DOMContentLoaded', function() {
             loadingScreen.style.display = 'none';
         }, 500); // 这个时间应该匹配 CSS 中的 transition 时间
     }, 1500); // 1.5秒后开始淡出
-    
+
     // 获取需要的 DOM 元素
     let video1 = document.getElementById('video1');
     let video2 = document.getElementById('video2');
@@ -70,68 +70,149 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
     // --- 语音识别核心 ---
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let recognition;
+    // const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    // let recognition;
 
-    // 检查浏览器是否支持语音识别
-    if (SpeechRecognition) {
-        recognition = new SpeechRecognition();
-        recognition.continuous = true; // 持续识别
-        recognition.lang = 'zh-CN'; // 设置语言为中文
-        recognition.interimResults = true; // 获取临时结果
+    // // 检查浏览器是否支持语音识别
+    // if (SpeechRecognition) {
+    //     recognition = new SpeechRecognition();
+    //     recognition.continuous = true; // 持续识别
+    //     recognition.lang = 'zh-CN'; // 设置语言为中文
+    //     recognition.interimResults = true; // 获取临时结果
 
-        recognition.onresult = (event) => {
-            const transcriptContainer = document.getElementById('transcript');
-            let final_transcript = '';
-            let interim_transcript = '';
+    //     recognition.onresult = (event) => {
+    //         const transcriptContainer = document.getElementById('transcript');
+    //         let final_transcript = '';
+    //         let interim_transcript = '';
 
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
-                if (event.results[i].isFinal) {
-                    final_transcript += event.results[i][0].transcript;
-                } else {
-                    interim_transcript += event.results[i][0].transcript;
-                }
-            }
-            
-            // 显示最终识别结果
-            transcriptContainer.textContent = final_transcript || interim_transcript;
-            
-            // 基于关键词的情感分析和视频切换
-            if (final_transcript) {
-                analyzeAndReact(final_transcript);
-            }
-        };
+    //         for (let i = event.resultIndex; i < event.results.length; ++i) {
+    //             if (event.results[i].isFinal) {
+    //                 final_transcript += event.results[i][0].transcript;
+    //             } else {
+    //                 interim_transcript += event.results[i][0].transcript;
+    //             }
+    //         }
 
-        recognition.onerror = (event) => {
-            console.error('语音识别错误:', event.error);
-        };
+    //         // 显示最终识别结果
+    //         transcriptContainer.textContent = final_transcript || interim_transcript;
 
-    } else {
-        console.log('您的浏览器不支持语音识别功能。');
-        // 可以在界面上给用户提示
-    }
+    //         // 基于关键词的情感分析和视频切换
+    //         if (final_transcript) {
+    //             analyzeAndReact(final_transcript);
+    //         }
+    //     };
 
-    // --- 麦克风按钮交互 ---
+    //     recognition.onerror = (event) => {
+    //         console.error('语音识别错误:', event.error);
+    //     };
+
+    // } else {
+    //     console.log('您的浏览器不支持语音识别功能。');
+    //     // 可以在界面上给用户提示
+    // }
+
+    // // --- 麦克风按钮交互 ---
+    // let isListening = false;
+
+    // micButton.addEventListener('click', function() {
+    //     if (!SpeechRecognition) return; // 如果不支持，则不执行任何操作
+
+    //     isListening = !isListening;
+    //     micButton.classList.toggle('is-listening', isListening);
+    //     const transcriptContainer = document.querySelector('.transcript-container');
+    //     const transcriptText = document.getElementById('transcript');
+
+    //     if (isListening) {
+    //         transcriptText.textContent = '聆听中...'; // 立刻显示提示
+    //         transcriptContainer.classList.add('visible');
+    //         recognition.start();
+    //     } else {
+    //         recognition.stop();
+    //         transcriptContainer.classList.remove('visible');
+    //         transcriptText.textContent = ''; // 清空文本
+    //     }
+    // });
+
+    // --- SiliconFlow 语音识别核心 ---
+    const SILICONFLOW_TOKEN = "你的SiliconFlow Token"; // 替换为你的Token
+
+    let mediaRecorder = null;
+    let audioChunks = [];
     let isListening = false;
+    let intervalId = null;
 
-    micButton.addEventListener('click', function() {
-        if (!SpeechRecognition) return; // 如果不支持，则不执行任何操作
-
-        isListening = !isListening;
-        micButton.classList.toggle('is-listening', isListening);
+    micButton.addEventListener('click', async function () {
         const transcriptContainer = document.querySelector('.transcript-container');
         const transcriptText = document.getElementById('transcript');
 
+        isListening = !isListening;
+        micButton.classList.toggle('is-listening', isListening);
+
         if (isListening) {
-            transcriptText.textContent = '聆听中...'; // 立刻显示提示
+            transcriptText.textContent = '聆听中...';
             transcriptContainer.classList.add('visible');
-            recognition.start();
+            audioChunks = [];
+
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+
+            mediaRecorder.ondataavailable = (e) => {
+                audioChunks.push(e.data);
+            };
+
+            mediaRecorder.onstop = async () => {
+                if (audioChunks.length === 0) return;
+                const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+                audioChunks = [];
+                await sendToSiliconflow(audioBlob, transcriptText, transcriptContainer);
+                // 如果还在录音，继续录
+                if (isListening) {
+                    mediaRecorder.start();
+                }
+            };
+
+            mediaRecorder.start();
+
+            // 每5秒分段识别
+            intervalId = setInterval(() => {
+                if (mediaRecorder && mediaRecorder.state === "recording") {
+                    mediaRecorder.stop();
+                }
+            }, 5000);
+
         } else {
-            recognition.stop();
             transcriptContainer.classList.remove('visible');
-            transcriptText.textContent = ''; // 清空文本
+            transcriptText.textContent = '';
+            clearInterval(intervalId);
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop();
+            }
         }
     });
+
+    async function sendToSiliconflow(audioBlob, transcriptText, transcriptContainer) {
+        const form = new FormData();
+        form.append("model", "FunAudioLLM/SenseVoiceSmall");
+        form.append("audio", audioBlob, "audio.webm");
+
+        try {
+            const response = await fetch("https://api.siliconflow.cn/v1/audio/transcriptions", {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${SILICONFLOW_TOKEN}`,
+                },
+                body: form,
+            });
+            const data = await response.json();
+            transcriptText.textContent += (data.text || "") + "\n";
+            transcriptContainer.classList.add('visible');
+            if (data.text) {
+                analyzeAndReact(data.text);
+            }
+        } catch (err) {
+            transcriptText.textContent += "[识别出错]\n";
+        }
+    }
 
 
     // --- 情感分析与反应 ---
